@@ -124,7 +124,7 @@ test/             unit tests
 ```
 
 ```bash
-node --test test/     # no Feishu SDK, no network
+node --test     # no Feishu SDK, no network
 ```
 
 Three traps worth reading before changing code:

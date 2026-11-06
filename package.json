@@ -1,6 +1,6 @@
 {
   "name": "dsh-feishu-bot",
-  "version": "0.7.1",
+  "version": "0.7.2",
   "description": "Bridge DSH session status, approvals and conversation content to a Feishu (Lark) bot over a long connection — approve tool calls from your phone.",
   "keywords": [
     "dsh",
@@ -44,7 +44,7 @@
     "node": ">=20"
   },
   "scripts": {
-    "test": "node --test test/"
+    "test": "node --test"
   },
   "dependencies": {
     "@larksuiteoapi/node-sdk": "^1.76.0"

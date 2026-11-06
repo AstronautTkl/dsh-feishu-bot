@@ -175,7 +175,7 @@ test/            单元测试
 ```
 
 ```bash
-node --test test/     # 不依赖飞书 SDK 和网络
+node --test     # 不依赖飞书 SDK 和网络
 ```
 
 三条踩过的坑，改代码前值得先读：
