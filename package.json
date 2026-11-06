@@ -1,0 +1,46 @@
+{
+  "name": "dsh-feishu-bot",
+  "version": "0.1.0",
+  "description": "Bridge DSH session status, approvals and conversation content to a Feishu (Lark) bot over a long connection — approve tool calls from your phone.",
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "feishu",
+    "lark",
+    "bot",
+    "approval",
+    "cordis",
+    "plugin"
+  ],
+  "license": "MIT",
+  "author": "Timeout",
+  "type": "module",
+  "exports": {
+    ".": "./index.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "index.js",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "icon.svg",
+    "README.md",
+    "README.en.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test test/"
+  },
+  "dependencies": {
+    "@larksuiteoapi/node-sdk": "^1.76.0"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}
