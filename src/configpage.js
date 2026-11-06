@@ -73,7 +73,7 @@ const clampInt = (value, min, max, fallback) => {
  * @param {(line: string) => void} options.log
  * @param {() => void} options.reload 让插件重新加载（应用需要重启的字段）
  */
-export function registerConfigPage({ webServer, config, state, saveState, openIds, status, log, reload }) {
+export function registerConfigPage({ webServer, config, state, saveState, openIds, status, log, reload, sendTest }) {
   const sameOrigin = (req) => {
     const origin = req.headers.origin
     if (!origin) return true
@@ -129,6 +129,17 @@ export function registerConfigPage({ webServer, config, state, saveState, openId
         body = await readBody(req)
       } catch (error) {
         sendJson(res, 400, { error: error.message })
+        return
+      }
+
+      // 页面的「发送测试消息」：走和正式通知一样的发送路径。
+      if (body.action === 'test') {
+        try {
+          await sendTest()
+          sendJson(res, 200, { ok: true })
+        } catch (error) {
+          sendJson(res, 500, { error: `发送测试消息失败：${error?.message ?? error}` })
+        }
         return
       }
 

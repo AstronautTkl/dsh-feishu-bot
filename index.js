@@ -839,6 +839,11 @@ export function apply(ctx, rawConfig = {}) {
         status: () => ({ wsState, pending: pending.size }),
         log,
         reload: () => ctx.fiber?.update?.(),
+        sendTest: async () => {
+          const id = await sendText('这是一条来自 DSH 飞书插件的测试消息。看到它说明通知链路是通的。')
+          if (!id) throw new Error('没有发出去，检查上方连接状态')
+          return true
+        },
       })
       ctx.effect(() => disposeRoute)
       log('settings.route.ready', webServer.getOrigin())
