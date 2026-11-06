@@ -121,6 +121,78 @@ window.__ModuleLoader__.load({
       )
     }
 
+    function HelpPanel() {
+      const commands = [
+        ['列表', '看当前打开的会话和运行状态'],
+        ['看 <会话号> [条数]', '看最近消息，默认 14 条'],
+        ['待办', '列出挂起中的审批和剩余时间'],
+        ['同意 / 拒绝 / 转电脑 <码>', '处理审批，也可以直接点卡片上的按钮'],
+        ['远程 开|关', '远程审批总开关'],
+        ['范围 全部|只读', '哪些工具可以在手机批'],
+        ['双端 开|关', '电脑和手机是否同时等审批'],
+        ['通知 开|关', '完成 / 报错提醒'],
+        ['测试审批', '发一张测试卡片，验证按钮链路'],
+        ['状态', '连接状态、待审批数、绑定身份'],
+      ]
+      return h(
+        Card,
+        { title: '使用说明', description: '在飞书里给机器人发这些指令。审批卡片上的四个按钮：同意 / 拒绝 / 看上下文 / 交给电脑。' },
+        h(
+          'div',
+          { style: { marginBottom: 18 } },
+          commands.map(([cmd, desc]) =>
+            h(
+              'div',
+              {
+                key: cmd,
+                style: {
+                  display: 'grid',
+                  gridTemplateColumns: 'minmax(150px, 220px) 1fr',
+                  gap: 12,
+                  padding: '6px 0',
+                  borderBottom: `1px solid ${T.border}`,
+                  alignItems: 'baseline',
+                },
+              },
+              h(
+                'code',
+                {
+                  style: {
+                    fontSize: 12,
+                    padding: '2px 7px',
+                    borderRadius: 6,
+                    background: T.bg2,
+                    border: `1px solid ${T.border}`,
+                    color: T.text,
+                    justifySelf: 'start',
+                  },
+                },
+                cmd,
+              ),
+              h('span', { style: { fontSize: 12, color: T.muted, lineHeight: 1.6 } }, desc),
+            ),
+          ),
+        ),
+        h('div', { style: { fontSize: 13, fontWeight: 560, marginBottom: 6 } }, '一次审批会发生什么'),
+        h(
+          'ul',
+          { style: { margin: '0 0 18px', paddingLeft: 18, fontSize: 12, color: T.muted, lineHeight: 1.8 } },
+          h('li', null, '工具需要授权时，飞书收到一张卡片；双端模式下电脑也会同时弹出确认框。'),
+          h('li', null, '两端谁先处理谁生效：电脑先处理，卡片会同步成同样的结果；手机先处理，电脑框可直接关掉。'),
+          h('li', null, '手机侧超时按设置里的策略走，双端模式由「总兜底」决定何时放弃本次调用。'),
+          h('li', null, '点「看上下文」会把该会话最近 5 条消息发给你，卡片本身不变，看完再决定。'),
+        ),
+        h('div', { style: { fontSize: 13, fontWeight: 560, marginBottom: 6 } }, '出问题先看这几条'),
+        h(
+          'ul',
+          { style: { margin: 0, paddingLeft: 18, fontSize: 12, color: T.muted, lineHeight: 1.8 } },
+          h('li', null, '收不到卡片：先看 ~/.dsh-feishu/bridge.log 里有没有 approval.req，没有说明请求没到插件。'),
+          h('li', null, '飞书没反应：确认状态栏是「已连接」；断开时日志会记 ws.state。'),
+          h('li', null, '事件订阅不生效：开放平台改完配置后必须发布新版本。'),
+        ),
+      )
+    }
+
     function SettingsPage() {
       const [loading, setLoading] = useState(true)
       const [snapshot, setSnapshot] = useState(null)
@@ -129,6 +201,7 @@ window.__ModuleLoader__.load({
       const [saved, setSaved] = useState('')
       const [secret, setSecret] = useState('')
       const [form, setForm] = useState(null)
+      const [helpOpen, setHelpOpen] = useState(false)
 
       const load = useCallback(async () => {
         setLoading(true)
@@ -215,11 +288,35 @@ window.__ModuleLoader__.load({
         { style: { padding: '4px 4px 40px', fontSize: 13, color: T.text, maxWidth: 760 } },
         h(
           'div',
-          { style: { display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 18 } },
-          h(StatusPill, { label: '飞书', value: connectionText, tone: connectionTone }),
-          h(StatusPill, { label: '待审批', value: String(snapshot?.pending ?? 0) }),
-          h(StatusPill, { label: '绑定', value: snapshot?.openIds?.length ? '已绑定' : '未绑定' }),
+          {
+            style: {
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 12,
+              flexWrap: 'wrap',
+              marginBottom: 18,
+            },
+          },
+          h(
+            'div',
+            { style: { display: 'flex', flexWrap: 'wrap', gap: 8 } },
+            h(StatusPill, { label: '飞书', value: connectionText, tone: connectionTone }),
+            h(StatusPill, { label: '待审批', value: String(snapshot?.pending ?? 0) }),
+            h(StatusPill, { label: '绑定', value: snapshot?.openIds?.length ? '已绑定' : '未绑定' }),
+          ),
+          h(
+            'button',
+            {
+              onClick: () => setHelpOpen((open) => !open),
+              style: buttonStyle(false),
+              'aria-expanded': helpOpen,
+            },
+            helpOpen ? '收起说明' : '使用说明',
+          ),
         ),
+
+        helpOpen ? h(HelpPanel) : null,
 
         h(
           Card,
