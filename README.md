@@ -1,5 +1,10 @@
 # dsh-feishu-bot
 
+[![test](https://github.com/AstronautTkl/dsh-feishu-bot/actions/workflows/test.yml/badge.svg)](https://github.com/AstronautTkl/dsh-feishu-bot/actions/workflows/test.yml)
+[![license](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![node](https://img.shields.io/badge/node-%3E%3D20-brightgreen.svg)](#环境要求)
+[![version](https://img.shields.io/github/package-json/v/AstronautTkl/dsh-feishu-bot?filename=package.json)](https://github.com/AstronautTkl/dsh-feishu-bot/releases)
+
 让 DSH 的**审批**和**进度**出现在飞书里：任务跑完会通知你，需要授权时手机上点一下就能批，不用一直守着电脑。
 
 > 适合经常让 DSH 跑长任务、又不总坐在电脑前的人。

@@ -1,5 +1,10 @@
 # dsh-feishu-bot
 
+[![test](https://github.com/AstronautTkl/dsh-feishu-bot/actions/workflows/test.yml/badge.svg)](https://github.com/AstronautTkl/dsh-feishu-bot/actions/workflows/test.yml)
+[![license](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![node](https://img.shields.io/badge/node-%3E%3D20-brightgreen.svg)](#requirements)
+[![version](https://img.shields.io/github/package-json/v/AstronautTkl/dsh-feishu-bot?filename=package.json)](https://github.com/AstronautTkl/dsh-feishu-bot/releases)
+
 Put DSH's **approvals** and **progress** into Feishu (Lark): get notified when a run finishes, approve tool calls from your phone, and stop babysitting the desktop.
 
 > For people who run long DSH tasks and are not always at the keyboard.
