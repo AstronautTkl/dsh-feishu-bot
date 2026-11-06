@@ -64,6 +64,7 @@ For development you can put `appId`, `appSecret` and `sdkPath` in `settings.loca
 | `remoteApproval` | `true` | Route approvals to Feishu |
 | `approvalScope` | `all` | `all` or `read-only` |
 | `dualApproval` | `true` | Desktop prompt and Feishu card wait together; the first decision wins and the other side is synced |
+| `desktopDelayMs` | `2500` | Grace window for the phone before the desktop prompt opens; `0` opens it immediately |
 | `approvalTimeoutMs` | `300000` | Approval timeout |
 | `onTimeout` | `delegate` | `delegate` back to desktop, or `reject` |
 | `bindMode` | `code` | `code` requires the 6-digit code from the local log on first contact |

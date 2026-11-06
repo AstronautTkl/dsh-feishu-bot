@@ -77,6 +77,7 @@ plugin_manager(action: "install_bundle", target: "<绝对路径>/dsh-feishu-bot"
 | `remoteApproval` | `true` | 是否拦截审批并转到飞书 |
 | `approvalScope` | `all` | `all` 全部工具；`read-only` 只放只读类 |
 | `dualApproval` | `true` | 双端模式：电脑确认框和飞书卡片同时等，先处理的一侧生效，另一侧同步结果 |
+| `desktopDelayMs` | `2500` | 双端模式下先给手机这么久的抢答窗口，再弹电脑确认框；`0` 表示立刻弹 |
 | `approvalTimeoutMs` | `300000` | 审批超时 |
 | `onTimeout` | `delegate` | 超时后 `delegate` 交回电脑，`reject` 直接拒绝 |
 | `bindMode` | `code` | `code` 首条消息要回本机日志里的 6 位码；`auto` 直接绑定 |
@@ -120,7 +121,7 @@ plugin_manager(action: "install_bundle", target: "<绝对路径>/dsh-feishu-bot"
 3. **飞书事件回调 3 秒内必须返回。** 任何等待（等审批结果、长任务）都必须脱离回调执行，否则飞书会重投事件，同一条消息被执行多次。
 4. **消息按 `message_id` 去重**，兜住重投。
 5. 审批卡片直接返回更新后的卡片，不在回调里再发一次 API。
-6. **双端模式**：`next()` 打开电脑端确认框的同时发飞书卡片，`Promise.race` 取先处理的一侧；电脑端先处理时用 `settle` 把卡片改成同样的结果，手机先处理时电脑端确认框稍后点到的结果被忽略（记 `approval.desktop.late`）。
+6. **双端模式**：先给手机 `desktopDelayMs` 毫秒的抢答窗口，再调用 `next()` 打开电脑端确认框；`Promise.race` 取先处理的一侧。手机在窗口内处理掉就不会有电脑端弹框残留；电脑端先处理时用 `settle` 把卡片改成同样的结果；手机晚于窗口处理时发一条文字提醒，电脑端确认框可直接关掉。
 
 ## 七、兼容性与排查
 

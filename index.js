@@ -57,6 +57,8 @@ const DEFAULTS = {
   approvalScope: 'all',
   // 双端同时等待：电脑端弹确认框、飞书发卡片，先处理的一侧生效，另一侧同步结果。
   dualApproval: true,
+  // 双端模式下，先给手机这么久的抢答窗口，再弹电脑端确认框（0 = 立刻弹）。
+  desktopDelayMs: 2500,
   // 超时后：'delegate' 交回界面确认，'reject' 直接拒绝。
   onTimeout: 'delegate',
   // 首条消息如何绑定主人：'code' 需要回一个本机日志里的绑定码，'auto' 直接绑定。
@@ -850,14 +852,35 @@ export function apply(ctx, rawConfig = {}) {
         return result.outcome
       }
 
-      // 双端模式：电脑端确认框和飞书卡片同时等，先处理的一侧生效。
+      // 双端模式：先给手机一个很短的抢答窗口，再开电脑端确认框。
+      // 手机在窗口内处理掉的话，电脑端压根不会弹框，也就不会有"点到一张过期弹框"的困扰。
       const opened = await openApprovalCard({ ...options, timeoutMs: null })
       if (!opened) return next()
-      const desktop = Promise.resolve().then(() => next())
+
+      const delayMs = Number.isFinite(config.desktopDelayMs) ? Math.max(0, config.desktopDelayMs) : 2500
+      let desktopPromise = null
+      const ensureDesktop = () => {
+        if (!desktopPromise) {
+          desktopPromise = Promise.resolve().then(() => next())
+          log('approval.desktop.opened')
+        }
+        return desktopPromise
+      }
+      let delayTimer
+      const delayedDesktop = new Promise((resolve, reject) => {
+        delayTimer = setTimeout(() => {
+          ensureDesktop().then(resolve, reject)
+        }, delayMs)
+      })
+
       const winner = await Promise.race([
-        opened.decision.then((outcome) => ({ from: 'phone', outcome })),
-        desktop.then((outcome) => ({ from: 'desktop', outcome })),
+        opened.decision.then((outcome) => {
+          clearTimeout(delayTimer)
+          return { from: 'phone', outcome }
+        }),
+        delayedDesktop.then((outcome) => ({ from: 'desktop', outcome })),
       ])
+      clearTimeout(delayTimer)
       log('approval.winner', winner.from, winner.outcome)
 
       if (winner.from === 'desktop') {
@@ -868,16 +891,19 @@ export function apply(ctx, rawConfig = {}) {
 
       if (winner.outcome === 'delegate') {
         // 手机点了「交给电脑」：电脑端本来就在等，直接等它的结果并回写卡片。
-        const desktopOutcome = await desktop
+        const desktopOutcome = await ensureDesktop()
         patchCard(opened.entry.messageId, doneCard(opened.entry, desktopOutcome ?? 'cancelled', '电脑端'))
         log('approval.desktop.after-delegate', desktopOutcome)
         return desktopOutcome
       }
 
-      // 手机先决定：电脑端确认框稍后会被用户点到，结果忽略即可。
-      desktop
-        .then((late) => log('approval.desktop.late', late))
-        .catch((error) => log('approval.desktop.late-error', String(error?.message ?? error)))
+      if (desktopPromise) {
+        // 电脑端确认框已经弹出来了，手机先决定：提醒一句，让用户把它关掉。
+        sendText('已在手机处理，电脑端那个确认框可以直接关掉。', undefined, undefined).catch(() => {})
+        desktopPromise
+          .then((late) => log('approval.desktop.late', late))
+          .catch((error) => log('approval.desktop.late-error', String(error?.message ?? error)))
+      }
       return winner.outcome
     } catch (error) {
       console.error('[feishu] 审批处理异常', error)
