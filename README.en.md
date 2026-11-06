@@ -44,7 +44,7 @@ The desktop is unaffected: in "both" mode it still shows its own confirmation, a
 
 ### 2. Install into DSH
 
-Recommended, from npm (dependencies handled by the package manager):
+Recommended, from npm. The Feishu SDK is bundled, so the package has **no runtime dependencies** and installs without build scripts:
 
 ```
 plugin_manager(action: "install_bundle", target: "@astronauttkl/dsh-feishu-bot")

@@ -6,15 +6,22 @@ import { fileURLToPath } from 'node:url'
 
 export const STATE_DIR = path.join(os.homedir(), '.dsh-feishu')
 export const STATE_FILE = path.join(STATE_DIR, 'state.json')
+/**
+ * 设置页写入的覆盖配置。放在用户目录而不是包目录：
+ * 从 npm 安装时包在 node_modules 里，重装/升级会把它冲掉。
+ * 开发时仍允许包根目录的 settings.local.json 作为兜底。
+ */
+export const SETTINGS_FILE = path.join(STATE_DIR, 'settings.local.json')
+const PACKAGE_SETTINGS_FILE = fileURLToPath(new URL('../settings.local.json', import.meta.url))
 
-/** Local, git-ignored overrides (App ID, secret, sdkPath) for development. */
+/** Local overrides (App ID, secret, sdkPath). 用户目录优先，其次包目录。 */
 export function loadLocalSettings() {
-  try {
-    const file = fileURLToPath(new URL('../settings.local.json', import.meta.url))
-    return JSON.parse(fs.readFileSync(file, 'utf8'))
-  } catch {
-    return {}
+  for (const file of [SETTINGS_FILE, PACKAGE_SETTINGS_FILE]) {
+    try {
+      return JSON.parse(fs.readFileSync(file, 'utf8'))
+    } catch {}
   }
+  return {}
 }
 
 export function loadState() {

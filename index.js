@@ -8,6 +8,7 @@
  *  - a Feishu WS client for text commands and card actions
  */
 import os from 'node:os'
+import { createRequire } from 'node:module'
 import { pathToFileURL } from 'node:url'
 
 import { buildApprovalCard, doneCard } from './src/cards.js'
@@ -78,15 +79,24 @@ function validateConfig(config) {
  * (e.g. when the bundle is linked from a checkout whose dependencies the
  * profile installer does not resolve).
  */
+/**
+ * 飞书 SDK 已经用 esbuild 打进 vendor/lark-sdk.cjs，运行时零依赖，
+ * 安装时不会触发任何依赖的安装脚本。`sdkPath` 只给开发时替换用。
+ * 产物是 CJS，用 createRequire 载入，避免 ESM 里动态 require 的兼容问题。
+ */
+const requireFromHere = createRequire(import.meta.url)
+
 async function loadSdk(config) {
-  if (config.sdkPath) return import(pathToFileURL(config.sdkPath).href)
+  if (config.sdkPath) {
+    const mod = await import(pathToFileURL(config.sdkPath).href)
+    return mod.default ?? mod
+  }
   try {
-    return await import('@larksuiteoapi/node-sdk')
+    return requireFromHere('./vendor/lark-sdk.cjs')
   } catch (error) {
     throw new Error(
-      '@larksuiteoapi/node-sdk 未安装：在插件目录执行 `npm install --omit=dev`，'
-        + '或在 settings.local.json 里用 sdkPath 指向它的入口文件。'
-        + ` 原始错误：${error?.message ?? error}`,
+      `飞书 SDK 加载失败：${error?.message ?? error}。`
+        + '若 vendor 目录缺失，请在插件目录执行 `npm run build:vendor`。',
     )
   }
 }

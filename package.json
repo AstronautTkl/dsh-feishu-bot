@@ -1,6 +1,6 @@
 {
   "name": "@astronauttkl/dsh-feishu-bot",
-  "version": "0.8.0",
+  "version": "0.9.1",
   "description": "Bridge DSH session status, approvals and conversation content to a Feishu (Lark) bot over a long connection — approve tool calls from your phone.",
   "keywords": [
     "dsh",
@@ -36,6 +36,7 @@
     "index.js",
     "client.js",
     "src/*.js",
+    "vendor/*.cjs",
     "cordis.patch.yml",
     "locale/*.json",
     "icon.svg",
@@ -47,9 +48,11 @@
     "node": ">=20"
   },
   "scripts": {
-    "test": "node --test"
+    "test": "node --test",
+    "build:vendor": "esbuild node_modules/@larksuiteoapi/node-sdk/lib/index.js --bundle --platform=node --format=cjs --target=node20 --minify --external:bufferutil --external:utf-8-validate --outfile=vendor/lark-sdk.cjs"
   },
-  "dependencies": {
+  "devDependencies": {
+    "esbuild": "^0.28.2",
     "@larksuiteoapi/node-sdk": "^1.76.0"
   },
   "dsh": {

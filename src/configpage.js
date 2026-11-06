@@ -4,11 +4,12 @@
  * configuration and write a validated subset of it.
  */
 import fs from 'node:fs'
-import { fileURLToPath } from 'node:url'
+import path from 'node:path'
+
+import { SETTINGS_FILE } from './state.js'
 
 export const CONFIG_PATH = '/dsh-feishu-bot/config'
 
-const SETTINGS_FILE = fileURLToPath(new URL('../settings.local.json', import.meta.url))
 const MAX_BODY = 64 * 1024
 
 function readSettingsFile() {
@@ -20,6 +21,7 @@ function readSettingsFile() {
 }
 
 function writeSettingsFile(next) {
+  fs.mkdirSync(path.dirname(SETTINGS_FILE), { recursive: true })
   fs.writeFileSync(SETTINGS_FILE, JSON.stringify(next, null, 2), 'utf8')
 }
 

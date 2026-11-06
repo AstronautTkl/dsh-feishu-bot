@@ -54,7 +54,7 @@
 
 ### 第 2 步：装到 DSH
 
-推荐从 npm 安装，依赖会由包管理器自动处理：
+推荐从 npm 安装。插件把飞书 SDK 一起打包了，**运行时零依赖**，安装时不会触发任何构建脚本：
 
 ```
 plugin_manager(action: "install_bundle", target: "@astronauttkl/dsh-feishu-bot")
