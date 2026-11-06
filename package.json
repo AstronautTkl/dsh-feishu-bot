@@ -16,11 +16,11 @@
   "author": "Timeout",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/<you>/dsh-feishu-bot.git"
+    "url": "git+https://github.com/AstronautTkl/dsh-feishu-bot.git"
   },
-  "homepage": "https://github.com/<you>/dsh-feishu-bot#readme",
+  "homepage": "https://github.com/AstronautTkl/dsh-feishu-bot#readme",
   "bugs": {
-    "url": "https://github.com/<you>/dsh-feishu-bot/issues"
+    "url": "https://github.com/AstronautTkl/dsh-feishu-bot/issues"
   },
   "type": "module",
   "exports": {
