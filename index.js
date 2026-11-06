@@ -22,6 +22,7 @@ import {
   toolCallArguments,
 } from './src/format.js'
 import { loadLocalSettings, loadState, log, saveState } from './src/state.js'
+import { registerConfigPage } from './src/configpage.js'
 
 export const name = 'dsh-feishu-bot'
 export const inject = ['sessions']
@@ -824,6 +825,27 @@ export function apply(ctx, rawConfig = {}) {
       sendText(`❌ 会话 ${shortId(agent.id)} 出错：${clip(message, 300)}`).catch(() => {})
     }),
   )
+
+  // 设置页后端：/dsh-feishu-bot/config，页面在 client.js 里注册到 settings.section。
+  const webServer = ctx.get('webServer')
+  if (webServer) {
+    try {
+      const disposeRoute = registerConfigPage({
+        webServer,
+        config,
+        state,
+        saveState,
+        openIds: state.openIds,
+        status: () => ({ wsState, pending: pending.size }),
+        log,
+        reload: () => ctx.fiber?.update?.(),
+      })
+      ctx.effect(() => disposeRoute)
+      log('settings.route.ready', webServer.getOrigin())
+    } catch (error) {
+      log('settings.route.error', String(error?.message ?? error))
+    }
+  }
 
   const start = async () => {
     try {

@@ -53,7 +53,9 @@ plugin_manager(action: "install_bundle", target: "<绝对路径>/dsh-feishu-bot"
 
 ## 三、配置
 
-推荐把 App Secret 存成 DSH 凭据，配置文件里只留 App ID：
+装好插件后，打开 **设置 → 飞书机器人**，可以直接在界面里填 App ID / App Secret、切换远程审批与双端模式、调超时。审批开关即时生效，连接类字段保存后插件会自动重载。
+
+也可以手写 `cordis.patch.yml`：
 
 ```yaml
 - insert:
