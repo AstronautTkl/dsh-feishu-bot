@@ -1,34 +1,43 @@
 # dsh-feishu-bot
 
-Bring DSH session status, pending approvals and conversation content to a Feishu (Lark) self-built bot over a **long connection** — no public URL, no tunnel.
+Put DSH's **approvals** and **progress** into Feishu (Lark): get notified when a run finishes, approve tool calls from your phone, and stop babysitting the desktop.
 
-- Notifications on your phone when a run finishes or errors
-- Approve tool calls from your phone: cards with **Approve / Reject / Hand to desktop**
-- Read conversations: `list`, `view <session>`, `pending`
+> For people who run long DSH tasks and are not always at the keyboard.
+> Uses Feishu's long connection — **no public URL, no tunnel**.
 
-## What it solves
+---
 
-DSH's UI is desktop-only, so approvals wait until you are back at the keyboard. This plugin moves the decisions — not the whole UI — to Feishu, so a long task can keep moving while you are away.
+## What it does
 
-## Requirements
+| When | What you get |
+|---|---|
+| A tool needs authorization | A Feishu card: `Approve / Reject / Context / Hand to desktop` |
+| A long run finishes | "Turn finished" plus the last few messages |
+| Something errors | A short error summary |
+| You want to check in | Send `list` / `view 3f2a` to read sessions and messages |
 
-- DSH with plugin support (tested on DSH 0.1.x)
-- Node.js ≥ 20
-- A Feishu team (free tier is enough) and a self-built app
+The desktop is unaffected: in "both" mode it still shows its own confirmation, and whichever side answers first wins.
 
-## 1. Feishu console
+---
 
-1. Open <https://open.feishu.cn/app> and sign in as a team admin
+## Five-minute setup
+
+### 1. Create a bot in Feishu (~3 min)
+
+1. Open <https://open.feishu.cn/app> as a team admin
 2. **Create app → Enterprise self-built app**
 3. **Add app capability → Bot**
-4. **Permissions**: `im:message`, `im:message:send_as_bot`, `im:message.p2p_msg:readonly`, `im:message.group_at_msg:readonly` (groups), `im:chat:readonly`
+4. **Permissions**: send/receive messages (`im:message`, `im:message:send_as_bot`), read messages sent to the bot (`im:message.p2p_msg:readonly`), group mentions (`im:message.group_at_msg:readonly`), chat info (`im:chat:readonly`)
 5. **Events & Callbacks**
    - Event configuration → subscription mode **Long connection** → event `im.message.receive_v1`
    - Callback configuration → **Long connection** → callback `card.action.trigger`
-6. **Create version → request release → approve as admin** (nothing works before the release is live)
-7. Copy **App ID** and **App Secret** from Credentials
+6. **Create version → request release → approve as admin**
 
-## 2. Install
+   > The step people miss. Without a released version, subscriptions do not fire and the plugin looks "connected but deaf".
+
+7. Copy **App ID** and **App Secret**
+
+### 2. Install into DSH
 
 ```bash
 git clone https://github.com/<you>/dsh-feishu-bot.git
@@ -36,73 +45,88 @@ cd dsh-feishu-bot
 npm install --omit=dev
 ```
 
-Then install the bundle in DSH with its absolute path:
+Then install the bundle with its absolute path:
 
 ```
-plugin_manager(action: "install_bundle", target: "<abs-path>/dsh-feishu-bot")
+plugin_manager(action: "install_bundle", target: "/abs/path/dsh-feishu-bot")
 ```
 
-Long connection is only available for self-built apps on the China site; Lark (international) does not support it.
+### 3. Configure in Settings
 
-## 3. Configure
+Open **Settings → Feishu bot**, paste App ID and App Secret, save. The status should turn into **"Everything is ready"**.
 
-```yaml
-- insert:
-    - id: dsh-feishu-bot
-      name: dsh-feishu-bot
-      config:
-        appId: cli_xxxxxxxxxxxxxxxx
+### 4. Bind your account in Feishu
+
+Send `help` to the bot in a direct chat. The first time it asks for a binding code: open `~/.dsh-feishu/bridge.log`, find the last `bind.code`, and reply `bind 123456`.
+
+### 5. Verify
+
+- Settings → **Send test message** → Feishu should receive it immediately
+- Send `test-approval` in Feishu → approve the card → it should turn green
+
+---
+
+## Day-to-day
+
+Commands: `list` · `view <id> [n]` · `pending` · `approve/reject/delegate <code>` · `remote on|off` · `scope all|read-only` · `dual on|off` · `notify on|off` · `test-approval` · `status`
+
+The approval card has four buttons: **Approve**, **Reject**, **Context** (last 5 messages), **Hand to desktop**.
+
+### Approval styles
+
+| Style | Feishu | Desktop | Good for |
+|---|---|---|---|
+| **Both** (default) | card | prompt | most of the time; first answer wins |
+| **Phone only** | card | none | away from the desk |
+| **Desktop only** | notification | prompt | approvals must not leave the machine |
+
+"Both" gives the phone a 2.5 s head start: answer there and the desktop prompt never appears. Configurable in Advanced.
+
+---
+
+## Troubleshooting
+
+- **Nothing arrives**: check the status is "connected"; usually the subscription mode is not "long connection", or the app version was never released.
+- **Card buttons do nothing**: look for `card.action` in `~/.dsh-feishu/bridge.log`; if missing, the callback (`card.action.trigger`) is not configured or not released.
+- **Connection dropped**: `ws.state` in the log. `reconnecting` retries automatically; `failed` usually means wrong credentials.
+- **Too noisy**: notifications only fire for runs longer than 45 s or on errors. `notify off` disables them.
+
+## Security
+
+- Only the bound Feishu account is served; binding needs a code printed in the local log.
+- Approvals are one-shot; nothing is remembered.
+- Timeouts delegate to the desktop instead of allowing.
+- The app secret is write-only in the UI.
+- Want tighter control? Set the approval scope to **read-only**.
+
+## Uninstall
+
+```
+plugin_manager(action: "remove_bundle", target: "dsh-feishu-bot")
+```
+Optionally delete `~/.dsh-feishu/`.
+
+## Development
+
+```
+index.js          entry: connection, commands, approval coordination, listeners
+client.js         settings page (registered into the DSH settings sidebar)
+src/format.js     pure formatting helpers
+src/state.js      local state / log / settings.local.json
+src/cards.js      Feishu card builders
+src/configpage.js HTTP endpoints behind the settings page
+test/             unit tests
 ```
 
-For development you can put `appId`, `appSecret` and `sdkPath` in `settings.local.json` next to the package (git-ignored); it overrides the config above.
+```bash
+node --test test/     # no Feishu SDK, no network
+```
 
-| Key | Default | Meaning |
-|---|---|---|
-| `appId` | — | Feishu app ID |
-| `appSecret` | — | Optional; otherwise the credential `DSH_FEISHU_APP_SECRET` is used |
-| `sdkPath` | — | Development only: absolute path to the SDK entry file |
-| `remoteApproval` | `true` | Route approvals to Feishu |
-| `approvalScope` | `all` | `all` or `read-only` |
-| `dualApproval` | `true` | Desktop prompt and Feishu card wait together; the first decision wins and the other side is synced |
-| `desktopDelayMs` | `2500` | Grace window for the phone before the desktop prompt opens; `0` opens it immediately |
-| `maxWaitMs` | `1800000` | Overall guard in dual mode: give up the call when neither side answers |
-| `approvalTimeoutMs` | `300000` | Approval timeout |
-| `onTimeout` | `delegate` | `delegate` back to desktop, or `reject` |
-| `bindMode` | `code` | `code` requires the 6-digit code from the local log on first contact |
-| `notify` | `true` | Completion/error notifications |
-| `notifyMinRunMs` | `45000` | Only notify for runs at least this long |
-| `approvableTools` | `[]` | Extra tools allowed for remote approval |
-| `logVerbose` | `false` | Log message bodies |
+Three traps worth reading before changing code:
 
-## 4. Commands
-
-`help` · `list` · `view <id> [n]` · `pending` · `approve/reject/delegate <code>` · `remote on|off` · `scope all|read-only` · `dual on|off` · `notify on|off` · `test-approval` · `bind <code>` · `status`
-
-## 5. Security
-
-- Only the bound `open_id` is served
-- First binding requires a 6-digit code printed in the local log
-- Approvals are one-shot (`allowed-once`)
-- Timeout delegates back to the desktop instead of allowing
-- App Secret lives in DSH's credential store, not in configuration
-
-Moving approvals to a phone moves the authorization channel to a phone. Bind only your own device, and use `remote off` when you don't need it.
-
-## 6. Implementation notes
-
-1. Listeners must be registered on **`ctx.root`**: scoped events dispatch from the agent's own context and only bubble to ancestors.
-2. They must **prepend**: the desktop answerer sits earlier in the same waterfall and never calls `next()`.
-3. Feishu callbacks must answer within **3 seconds**; anything slow has to be detached, or Feishu re-delivers and commands run twice.
-4. Messages are de-duplicated by `message_id`.
-5. Card callbacks return the updated card inline instead of issuing another API call.
-6. **Dual mode**: `next()` opens the desktop prompt while a Feishu card is sent; `Promise.race` takes the first decision, and a desktop-first outcome patches the card through `settle`. A phone-first outcome leaves the desktop prompt to be dismissed, and its late answer is ignored.
-
-## 7. Troubleshooting
-
-- No card: check `~/.dsh-feishu/bridge.log` for `approval.req`; missing means the request never reached the plugin
-- No notification: `notify on`, and the run must exceed 45 seconds
-- Events not arriving: make sure a new app **version was released**
-- `Cannot find package '@larksuiteoapi/node-sdk'`: run `npm install --omit=dev` in the package directory
+1. Scoped events such as `approval/request` must be registered on **`ctx.root`**.
+2. They must **prepend**, or the desktop answerer decides first and never calls `next()`.
+3. Feishu callbacks must answer within **3 seconds**; anything slow has to be detached.
 
 ## License
 

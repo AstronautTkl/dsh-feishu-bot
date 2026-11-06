@@ -1,6 +1,6 @@
 {
   "name": "dsh-feishu-bot",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "description": "Bridge DSH session status, approvals and conversation content to a Feishu (Lark) bot over a long connection — approve tool calls from your phone.",
   "keywords": [
     "dsh",
@@ -14,6 +14,14 @@
   ],
   "license": "MIT",
   "author": "Timeout",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/<you>/dsh-feishu-bot.git"
+  },
+  "homepage": "https://github.com/<you>/dsh-feishu-bot#readme",
+  "bugs": {
+    "url": "https://github.com/<you>/dsh-feishu-bot/issues"
+  },
   "type": "module",
   "exports": {
     ".": "./index.js",
