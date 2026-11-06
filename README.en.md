@@ -44,17 +44,21 @@ The desktop is unaffected: in "both" mode it still shows its own confirmation, a
 
 ### 2. Install into DSH
 
+Recommended, from npm (dependencies handled by the package manager):
+
+```
+plugin_manager(action: "install_bundle", target: "@astronauttkl/dsh-feishu-bot")
+```
+
+From source, if you want to change the code:
+
 ```bash
-git clone https://github.com/<you>/dsh-feishu-bot.git
+git clone https://github.com/AstronautTkl/dsh-feishu-bot.git
 cd dsh-feishu-bot
 npm install --omit=dev
 ```
 
-Then install the bundle with its absolute path:
-
-```
-plugin_manager(action: "install_bundle", target: "/abs/path/dsh-feishu-bot")
-```
+Then pass the absolute path of that directory as `target`.
 
 ### 3. Configure in Settings
 

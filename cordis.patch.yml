@@ -1,6 +1,6 @@
 - insert:
     - id: dsh-feishu-bot
-      name: dsh-feishu-bot
+      name: '@astronauttkl/dsh-feishu-bot'
       config:
         # 飞书开放平台 → 自建应用 →「凭证与基础信息」里的 App ID。
         # 留空时插件不会启动，只在日志里提示。

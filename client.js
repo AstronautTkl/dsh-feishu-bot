@@ -6,7 +6,7 @@
  * Talks to the host through /dsh-feishu-bot/config (src/configpage.js).
  */
 window.__ModuleLoader__.load({
-  id: 'dsh-feishu-bot',
+  id: '@astronauttkl/dsh-feishu-bot',
   factory(require) {
     const React = require('react')
     const h = React.createElement

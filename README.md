@@ -54,17 +54,21 @@
 
 ### 第 2 步：装到 DSH
 
+推荐从 npm 安装，依赖会由包管理器自动处理：
+
+```
+plugin_manager(action: "install_bundle", target: "@astronauttkl/dsh-feishu-bot")
+```
+
+想改代码或离线安装，也可以从源码装：
+
 ```bash
-git clone https://github.com/<you>/dsh-feishu-bot.git
+git clone https://github.com/AstronautTkl/dsh-feishu-bot.git
 cd dsh-feishu-bot
 npm install --omit=dev
 ```
 
-然后在 DSH 里安装这个插件，`target` 填上面目录的**绝对路径**：
-
-```
-plugin_manager(action: "install_bundle", target: "/绝对路径/dsh-feishu-bot")
-```
+然后把 `target` 换成源码目录的**绝对路径**。
 
 ### 第 3 步：在设置里填配置
 
