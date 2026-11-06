@@ -116,7 +116,6 @@ plugin_manager(action: "install_bundle", target: "<绝对路径>/dsh-feishu-bot"
 **把审批搬到手机等于把授权通道放到手机上。** 请只在自己的设备上绑定，必要时用 `远程 关` 整体停用。
 
 ## 六、实现要点（给维护者）
-
 1. **监听必须注册在 `ctx.root`。** `approval/request` 等带作用域的事件从 agent 自己的上下文派发，只向祖先链冒泡；插件上下文是 root 的兄弟分支，挂在它上面收不到。
 2. **必须 `prepend`。** 桌面端的 answerer 在同一个 waterfall 上更靠前，它决定完不会调 `next()`，排在后面的监听器永远轮不到。
 3. **飞书事件回调 3 秒内必须返回。** 任何等待（等审批结果、长任务）都必须脱离回调执行，否则飞书会重投事件，同一条消息被执行多次。
@@ -131,6 +130,22 @@ plugin_manager(action: "install_bundle", target: "<绝对路径>/dsh-feishu-bot"
 - 没有通知：确认 `通知 开`，且轮次跑超过 45 秒
 - 事件不生效：检查飞书后台是否**发布了新版本**
 - `Cannot find package '@larksuiteoapi/node-sdk'`：在插件目录执行 `npm install --omit=dev`
+
+## 八、目录结构
+
+```
+index.js         插件入口：连接、命令分发、审批协调、事件监听
+src/format.js    纯格式化函数（会话渲染、截断、子会话判定、参数回查）
+src/state.js     本地状态、日志、settings.local.json
+src/cards.js     飞书卡片构造（审批、结果、通知）
+test/*.test.mjs  单元测试，node --test test/
+```
+
+测试不依赖飞书 SDK 与网络，CI 直接跑：
+
+```bash
+node --test test/
+```
 
 ## License
 

@@ -7,13 +7,69 @@
  *  - agent/status and agent/error observers (notifications)
  *  - a Feishu WS client for text commands and card actions
  */
-import fs from 'node:fs'
 import os from 'node:os'
-import path from 'node:path'
-import { fileURLToPath, pathToFileURL } from 'node:url'
+import { pathToFileURL } from 'node:url'
+
+import { buildApprovalCard, doneCard } from './src/cards.js'
+import {
+  READ_ONLY_TOOLS,
+  clip,
+  isSubagent,
+  oneLine,
+  renderSession,
+  sessionName,
+  shortId,
+  toolCallArguments,
+} from './src/format.js'
+import { loadLocalSettings, loadState, log, saveState } from './src/state.js'
 
 export const name = 'dsh-feishu-bot'
 export const inject = ['sessions']
+
+/**
+ * 没有 Config schema（schemastery 是 DSH 内部包，本地链接安装时解析不到），
+ * 所以在这里做一遍显式校验：写错的字段回落到默认值并给出可读警告，而不是静默失效。
+ */
+function validateConfig(config) {
+  const warnings = []
+  const positive = (key, fallback) => {
+    const value = config[key]
+    if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
+      if (value !== undefined) warnings.push(`${key} 应为正数（收到 ${JSON.stringify(value)}），已用 ${fallback}`)
+      config[key] = fallback
+    }
+  }
+  positive('approvalTimeoutMs', 300000)
+  positive('maxWaitMs', 1800000)
+  if (typeof config.desktopDelayMs !== 'number' || !Number.isFinite(config.desktopDelayMs) || config.desktopDelayMs < 0) {
+    warnings.push(`desktopDelayMs 应为 ≥0 的数字，已用 2500`)
+    config.desktopDelayMs = 2500
+  }
+  if (!['all', 'read-only'].includes(config.approvalScope)) {
+    warnings.push(`approvalScope 只能是 all / read-only，已用 all`)
+    config.approvalScope = 'all'
+  }
+  if (!['delegate', 'reject'].includes(config.onTimeout)) {
+    warnings.push(`onTimeout 只能是 delegate / reject，已用 delegate`)
+    config.onTimeout = 'delegate'
+  }
+  if (!['code', 'auto'].includes(config.bindMode)) {
+    warnings.push(`bindMode 只能是 code / auto，已用 code`)
+    config.bindMode = 'code'
+  }
+  if (!Array.isArray(config.approvableTools)) {
+    warnings.push('approvableTools 应为数组，已用 []')
+    config.approvableTools = []
+  }
+  if (!Array.isArray(config.allowedOpenIds)) {
+    warnings.push('allowedOpenIds 应为数组，已用 []')
+    config.allowedOpenIds = []
+  }
+  for (const warning of warnings) {
+    console.warn(`[feishu] 配置：${warning}`)
+    log('config.warn', warning)
+  }
+}
 
 /**
  * The Feishu SDK resolves from the package's own dependencies when installed
@@ -33,19 +89,6 @@ async function loadSdk(config) {
     )
   }
 }
-
-/** Local, git-ignored overrides (App ID, secret, sdkPath) for development. */
-function loadLocalSettings() {
-  try {
-    const file = fileURLToPath(new URL('./settings.local.json', import.meta.url))
-    return JSON.parse(fs.readFileSync(file, 'utf8'))
-  } catch {
-    return {}
-  }
-}
-
-const STATE_DIR = path.join(os.homedir(), '.dsh-feishu')
-const STATE_FILE = path.join(STATE_DIR, 'state.json')
 
 const DEFAULTS = {
   appId: '',
@@ -72,162 +115,9 @@ const DEFAULTS = {
   logVerbose: false,
 }
 
-/** 手机端可以直接批准的只读类工具。写文件、执行命令这类默认留在电脑上确认。 */
-const READ_ONLY_TOOLS = new Set([
-  'read', 'glob', 'grep', 'web_search', 'web_fetch', 'weather', 'research',
-  'multi_search', 'platform_search', 'domain_search', 'advanced_search',
-  'video_search', 'cache_search', 'free_search_test', 'look_design',
-  'check_design', 'get_goal', 'job_list', 'job_output', 'list_agents',
-  'schedule_list', 'schedule_view', 'queryApps', 'queryHosting', 'queryEnv',
-])
-
-const isSubagent = (session) =>
-  Boolean(session?.header?.parentSession) || session?.header?.origin === 'subagent'
-
-/** 审批请求只带 callId，不带参数；从会话日志里回查这次调用实际要做什么。 */
-function toolCallArguments(session, callId) {
-  if (!session || !callId) return ''
-  try {
-    const end = Number(session.seq)
-    const from = Math.max(0, end - 120)
-    const events = session.snapshotEvents(from, end)
-    for (let index = events.length - 1; index >= 0; index -= 1) {
-      const event = events[index]
-      if (event?.type === 'tool/call' && String(event.data?.callId) === String(callId)) {
-        return String(event.data?.arguments ?? '')
-      }
-    }
-  } catch {}
-  return ''
-}
-
-function loadState() {
-  const state = { openIds: [], chatId: '', remoteApproval: true, notify: true, approvalScope: '', dualApproval: null, explicit: {} }
-  try {
-    const raw = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8'))
-    if (Array.isArray(raw.openIds)) state.openIds = raw.openIds.filter((v) => typeof v === 'string')
-    if (typeof raw.chatId === 'string') state.chatId = raw.chatId
-    if (typeof raw.remoteApproval === 'boolean') state.remoteApproval = raw.remoteApproval
-    if (typeof raw.notify === 'boolean') state.notify = raw.notify
-    if (typeof raw.approvalScope === 'string') state.approvalScope = raw.approvalScope
-    if (typeof raw.dualApproval === 'boolean') state.dualApproval = raw.dualApproval
-    if (raw.explicit && typeof raw.explicit === 'object') state.explicit = raw.explicit
-  } catch {}
-  return state
-}
-
-function log(...parts) {
-  const line = `${new Date().toISOString()} ${parts
-    .map((part) => (typeof part === 'string' ? part : JSON.stringify(part)))
-    .join(' ')}\n`
-  try {
-    fs.mkdirSync(STATE_DIR, { recursive: true })
-    const file = path.join(STATE_DIR, 'bridge.log')
-    try {
-      if (fs.statSync(file).size > 2 * 1024 * 1024) fs.renameSync(file, `${file}.1`)
-    } catch {}
-    fs.appendFileSync(file, line)
-  } catch {}
-}
-
-function saveState(state) {
-  try {
-    fs.mkdirSync(STATE_DIR, { recursive: true })
-    fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2), 'utf8')
-  } catch (error) {
-    console.error('[feishu] 保存状态失败', error)
-  }
-}
-
-const clip = (text, max) => {
-  const value = String(text ?? '')
-  return value.length > max ? `${value.slice(0, max)}…` : value
-}
-
-const oneLine = (text, max) => clip(String(text ?? '').replace(/\s+/g, ' ').trim(), max)
-
-function blockText(block) {
-  if (!block || typeof block !== 'object') return ''
-  switch (block.type) {
-    case 'text':
-      return typeof block.text === 'string' ? block.text : ''
-    case 'tool-call':
-      return `🔧 ${block.name ?? 'tool'} ${oneLine(block.arguments, 160)}`
-    case 'reasoning':
-      return ''
-    default:
-      return ''
-  }
-}
-
-function messageText(message) {
-  if (!message) return ''
-  if (typeof message === 'string') return message
-  if (typeof message.text === 'string' && !Array.isArray(message.content)) return message.text
-  const content = Array.isArray(message.content) ? message.content : []
-  const parts = []
-  for (const block of content) {
-    const text = blockText(block)
-    if (text) parts.push(text)
-  }
-  return parts.join('\n')
-}
-
-function roleLabel(role) {
-  switch (role) {
-    case 'user':
-      return '你'
-    case 'assistant':
-      return '助手'
-    case 'tool':
-      return '工具'
-    default:
-      return role ?? '?'
-  }
-}
-
-function renderSession(session, limit = 14) {
-  let messages = []
-  try {
-    messages = session.deriveMessages() ?? []
-  } catch (error) {
-    return `读取会话失败：${error?.message ?? error}`
-  }
-  const rows = []
-  for (const message of messages) {
-    const role = message?.role
-    if (role !== 'user' && role !== 'assistant' && role !== 'tool') continue
-    const text = messageText(message).trim()
-    if (!text) continue
-    rows.push(`${roleLabel(role)}：${clip(text, 420)}`)
-  }
-  const tail = rows.slice(-limit)
-  if (tail.length === 0) return '（这个会话还没有可显示的消息）'
-  return tail.join('\n\n')
-}
-
-/** 会话 id 形如 `session-<uuid>`，去掉公共前缀后才看得出是哪一条。 */
-function shortId(sessionOrId) {
-  const id = typeof sessionOrId === 'string' ? sessionOrId : String(sessionOrId?.id ?? '')
-  return id.replace(/^session-/, '').slice(0, 6)
-}
-
-function sessionName(session) {
-  const cwd = session?.header?.cwd ?? ''
-  const base = cwd ? path.basename(cwd) : '会话'
-  return `${base} (${shortId(session)})`
-}
-
-function cardText(content) {
-  return { tag: 'div', text: { tag: 'lark_md', content } }
-}
-
-function button(label, type, value) {
-  return { tag: 'button', text: { tag: 'plain_text', content: label }, type, value }
-}
-
 export function apply(ctx, rawConfig = {}) {
   const config = { ...DEFAULTS, ...rawConfig, ...loadLocalSettings() }
+  validateConfig(config)
   const state = loadState()
   if (Array.isArray(config.allowedOpenIds) && config.allowedOpenIds.length > 0) {
     state.openIds = [...new Set([...config.allowedOpenIds, ...state.openIds])]
@@ -334,52 +224,6 @@ export function apply(ctx, rawConfig = {}) {
       if (!pending.has(code)) return code
     }
     return String(Date.now()).slice(-4)
-  }
-
-  function doneCard(entry, outcome, byWhom) {
-    const state =
-      outcome === 'allowed-once'
-        ? 'approved'
-        : outcome === 'delegate'
-          ? 'delegated'
-          : outcome === 'timeout' || outcome === 'expired'
-            ? 'timeout'
-            : outcome === 'cancelled'
-              ? 'cancelled'
-              : 'rejected'
-    const title =
-      state === 'approved'
-        ? '✅ 已同意'
-        : state === 'delegated'
-          ? '⏳ 已转交电脑'
-          : state === 'timeout'
-            ? '⌛ 手机侧已超时'
-            : state === 'cancelled'
-              ? '⌛ 已取消或超时'
-              : '⛔ 已拒绝'
-    const template = state === 'approved' ? 'green' : state === 'delegated' ? 'blue' : state === 'timeout' || state === 'cancelled' ? 'grey' : 'red'
-    const note =
-      state === 'delegated'
-        ? '已交回 DSH 界面等待确认'
-        : state === 'timeout'
-          ? '电脑端仍在等待确认'
-          : state === 'cancelled'
-            ? byWhom === '总超时' ? '两端都没人处理，已放弃本次调用' : '本次调用已取消'
-            : '两端已同步'
-    return {
-      config: { wide_screen_mode: true },
-      header: {
-        template,
-        title: { tag: 'plain_text', content: title },
-      },
-      elements: [
-        cardText(`**会话**：${entry.sessionName}\n**工具**：\`${entry.toolName}\`\n**码**：${entry.code}${byWhom ? `\n**操作人**：${byWhom}` : ''}`),
-        {
-          tag: 'note',
-          elements: [{ tag: 'plain_text', content: note }],
-        },
-      ],
-    }
   }
 
   function settle(code, outcome, byWhom = '', options = {}) {
@@ -742,49 +586,6 @@ export function apply(ctx, rawConfig = {}) {
     }
   }
 
-  function approvalCardText(entry) {
-    const lines = [
-      `**会话**：${entry.sessionName}`,
-      `**工具**：\`${entry.toolName}\`${entry.risky ? '  ⚠️ 写操作/执行类' : ''}`,
-    ]
-    if (entry.summary) lines.push(`**要执行**：${entry.summary}`)
-    if (entry.reason) lines.push(`**原因**：${entry.reason}`)
-    lines.push(`**码**：${entry.code}`)
-    return lines.join('\n')
-  }
-
-  function buildApprovalCard(entry, timeoutMs) {
-    return {
-      config: { wide_screen_mode: true, update_multi: true },
-      header: { template: 'orange', title: { tag: 'plain_text', content: '⚠️ 需要你授权' } },
-      elements: [
-        cardText(approvalCardText(entry)),
-        {
-          tag: 'action',
-          actions: [
-            button('同意', 'primary', { op: 'approve', code: entry.code }),
-            button('拒绝', 'danger', { op: 'reject', code: entry.code }),
-            button('看上下文', 'default', { op: 'context', code: entry.code }),
-            button('交给电脑', 'default', { op: 'delegate', code: entry.code }),
-          ],
-        },
-        {
-          tag: 'note',
-          elements: [
-            {
-              tag: 'plain_text',
-              content: state.dualApproval
-                ? '电脑端和手机端同时在等，任一侧处理即生效'
-                : config.onTimeout === 'delegate'
-                  ? `${Math.max(1, Math.round(timeoutMs / 60000))} 分钟没操作会自动交回电脑确认`
-                  : `${Math.max(1, Math.round(timeoutMs / 60000))} 分钟没操作视为拒绝`,
-            },
-          ],
-        },
-      ],
-    }
-  }
-
   /**
    * 发一张审批卡片并返回它的决定 Promise。
    * options.timeoutMs 传 null 表示手机侧不设超时（双端模式由电脑端兜底）。
@@ -808,7 +609,7 @@ export function apply(ctx, rawConfig = {}) {
       signal: options.signal,
       resolve: undefined,
     }
-    const card = buildApprovalCard(entry, timeoutMs)
+    const card = buildApprovalCard(entry, timeoutMs, { dual: state.dualApproval, onTimeout: config.onTimeout })
     let messageId
     try {
       messageId = await sendCard(card, target)
@@ -958,7 +759,7 @@ export function apply(ctx, rawConfig = {}) {
     const card = {
       config: { wide_screen_mode: true },
       header: { template: 'blue', title: { tag: 'plain_text', content: '✅ 本轮结束' } },
-      elements: [cardText(`**${sessionName(session)}**\n\n${clip(body, 900)}`), { tag: 'note', elements: [{ tag: 'plain_text', content: '发「看 ' + shortId(session) + '」查看更多' }] }],
+      elements: [{ tag: 'div', text: { tag: 'lark_md', content: `**${sessionName(session)}**\n\n${clip(body, 900)}` } }, { tag: 'note', elements: [{ tag: 'plain_text', content: '发「看 ' + shortId(session) + '」查看更多' }] }],
     }
     try {
       await sendCard(card, target)
@@ -1109,16 +910,4 @@ export function apply(ctx, rawConfig = {}) {
 }
 
 /** Exposed for unit tests only; not part of the plugin contract. */
-export const internals = {
-  clip,
-  oneLine,
-  blockText,
-  messageText,
-  roleLabel,
-  renderSession,
-  sessionName,
-  shortId,
-  isSubagent,
-  toolCallArguments,
-  READ_ONLY_TOOLS,
-}
+export { internals } from './src/format.js'
