@@ -1,6 +1,6 @@
 {
   "name": "dsh-feishu-bot",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Bridge DSH session status, approvals and conversation content to a Feishu (Lark) bot over a long connection — approve tool calls from your phone.",
   "keywords": [
     "dsh",
