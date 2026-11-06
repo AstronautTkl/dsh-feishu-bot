@@ -65,6 +65,7 @@ For development you can put `appId`, `appSecret` and `sdkPath` in `settings.loca
 | `approvalScope` | `all` | `all` or `read-only` |
 | `dualApproval` | `true` | Desktop prompt and Feishu card wait together; the first decision wins and the other side is synced |
 | `desktopDelayMs` | `2500` | Grace window for the phone before the desktop prompt opens; `0` opens it immediately |
+| `maxWaitMs` | `1800000` | Overall guard in dual mode: give up the call when neither side answers |
 | `approvalTimeoutMs` | `300000` | Approval timeout |
 | `onTimeout` | `delegate` | `delegate` back to desktop, or `reject` |
 | `bindMode` | `code` | `code` requires the 6-digit code from the local log on first contact |

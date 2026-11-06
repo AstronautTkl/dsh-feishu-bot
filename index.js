@@ -59,6 +59,8 @@ const DEFAULTS = {
   dualApproval: true,
   // 双端模式下，先给手机这么久的抢答窗口，再弹电脑端确认框（0 = 立刻弹）。
   desktopDelayMs: 2500,
+  // 双端模式下的兜底：两边都没人处理时，最多等这么久就放弃本次调用。
+  maxWaitMs: 1800000,
   // 超时后：'delegate' 交回界面确认，'reject' 直接拒绝。
   onTimeout: 'delegate',
   // 首条消息如何绑定主人：'code' 需要回一个本机日志里的绑定码，'auto' 直接绑定。
@@ -254,6 +256,7 @@ export function apply(ctx, rawConfig = {}) {
   const lastStatus = new Map()
   const runStartedAt = new Map()
   let wsClient = null
+  let wsState = 'idle'
   let disposed = false
   let bindRequest = null
 
@@ -339,9 +342,11 @@ export function apply(ctx, rawConfig = {}) {
         ? 'approved'
         : outcome === 'delegate'
           ? 'delegated'
-          : outcome === 'timeout'
+          : outcome === 'timeout' || outcome === 'expired'
             ? 'timeout'
-            : 'rejected'
+            : outcome === 'cancelled'
+              ? 'cancelled'
+              : 'rejected'
     const title =
       state === 'approved'
         ? '✅ 已同意'
@@ -349,14 +354,18 @@ export function apply(ctx, rawConfig = {}) {
           ? '⏳ 已转交电脑'
           : state === 'timeout'
             ? '⌛ 手机侧已超时'
-            : '⛔ 已拒绝'
-    const template = state === 'approved' ? 'green' : state === 'delegated' ? 'blue' : state === 'timeout' ? 'grey' : 'red'
+            : state === 'cancelled'
+              ? '⌛ 已取消或超时'
+              : '⛔ 已拒绝'
+    const template = state === 'approved' ? 'green' : state === 'delegated' ? 'blue' : state === 'timeout' || state === 'cancelled' ? 'grey' : 'red'
     const note =
       state === 'delegated'
         ? '已交回 DSH 界面等待确认'
         : state === 'timeout'
           ? '电脑端仍在等待确认'
-          : '两端已同步'
+          : state === 'cancelled'
+            ? byWhom === '总超时' ? '两端都没人处理，已放弃本次调用' : '本次调用已取消'
+            : '两端已同步'
     return {
       config: { wide_screen_mode: true },
       header: {
@@ -562,6 +571,7 @@ export function apply(ctx, rawConfig = {}) {
       return sendText(
         [
           `远程审批：${state.remoteApproval ? '开' : '关'}`,
+          `飞书连接：${wsState}`,
           `双端模式：${state.dualApproval ? '开（电脑+手机同时等）' : '关（只走手机）'}`,
           `审批范围：${state.approvalScope === 'all' ? '全部工具' : '只读类（写/执行留电脑）'}`,
           `超时策略：${state.dualApproval ? '由电脑端兜底' : config.onTimeout === 'delegate' ? '交回电脑' : '拒绝'}`,
@@ -703,6 +713,19 @@ export function apply(ctx, rawConfig = {}) {
       const entry = pending.get(code)
       if (!entry) return { toast: { type: 'info', content: '这条审批已经处理过，或已过期' } }
       const op = String(value.op ?? '')
+
+      if (op === 'context') {
+        let body = '（这个会话已经关闭，看不到内容了）'
+        try {
+          const session = ctx.sessions.get(entry.sessionId)
+          if (session) body = renderSession(session, 5)
+        } catch (error) {
+          log('context.error', String(error?.message ?? error))
+        }
+        await sendText(`📄 ${entry.sessionName}\n\n${body}`)
+        return { toast: { type: 'info', content: '已把会话上下文发给你' } }
+      }
+
       const outcome = op === 'approve' ? 'allowed-once' : op === 'delegate' ? 'delegate' : 'rejected'
       const card = doneCard(entry, outcome, '飞书按钮')
       const ok = settle(code, outcome, '飞书按钮', { skipPatch: true })
@@ -741,6 +764,7 @@ export function apply(ctx, rawConfig = {}) {
           actions: [
             button('同意', 'primary', { op: 'approve', code: entry.code }),
             button('拒绝', 'danger', { op: 'reject', code: entry.code }),
+            button('看上下文', 'default', { op: 'context', code: entry.code }),
             button('交给电脑', 'default', { op: 'delegate', code: entry.code }),
           ],
         },
@@ -769,7 +793,8 @@ export function apply(ctx, rawConfig = {}) {
     const target = targetId()
     if (!target) return null
     const noTimeout = options.timeoutMs === null
-    const timeoutMs = noTimeout ? 30 * 60000 : Number.isFinite(options.timeoutMs) ? options.timeoutMs : config.approvalTimeoutMs
+    const maxWaitMs = Number.isFinite(config.maxWaitMs) ? config.maxWaitMs : 1800000
+    const timeoutMs = noTimeout ? maxWaitMs : Number.isFinite(options.timeoutMs) ? options.timeoutMs : config.approvalTimeoutMs
     const entry = {
       code: makeCode(),
       toolName: options.toolName,
@@ -777,6 +802,7 @@ export function apply(ctx, rawConfig = {}) {
       summary: options.summary ?? '',
       risky: options.risky === true,
       sessionName: options.sessionName ?? '会话',
+      sessionId: options.sessionId ?? '',
       expiresAt: Date.now() + timeoutMs,
       messageId: undefined,
       signal: options.signal,
@@ -804,6 +830,12 @@ export function apply(ctx, rawConfig = {}) {
       options.signal?.addEventListener?.('abort', onAbort, { once: true })
       if (!noTimeout) {
         entry.timer = setTimeout(() => settle(entry.code, timeoutOutcome, '超时'), timeoutMs)
+      } else {
+        // 双端模式没有手机侧超时，但必须有总兜底，否则两边都不理时工具会永久挂起。
+        entry.timer = setTimeout(() => {
+          log('approval.expired', entry.code)
+          settle(entry.code, 'cancelled', '总超时')
+        }, maxWaitMs)
       }
       pending.set(entry.code, entry)
     })
@@ -842,6 +874,7 @@ export function apply(ctx, rawConfig = {}) {
         summary,
         risky: !READ_ONLY_TOOLS.has(toolName),
         sessionName: sessionLabel,
+        sessionId: String(req?.agent?.id ?? ''),
         signal: req?.signal,
       }
 
@@ -994,10 +1027,18 @@ export function apply(ctx, rawConfig = {}) {
   const start = async () => {
     try {
       const Lark = await loadSdk(config)
-      const appSecret = await resolveAppSecret()
+      let appSecret = ''
+      // 热重载时凭据服务偶尔还没就绪，重试几次再判定失败。
+      for (let attempt = 0; attempt < 3 && !appSecret; attempt += 1) {
+        appSecret = await resolveAppSecret()
+        if (!appSecret) await new Promise((resolve) => setTimeout(resolve, 800))
+      }
       if (!appSecret) {
         log('start.no-secret')
-        console.error('[feishu] 没有可用的 App Secret：请先运行一次带 appSecret 的配置，或写入凭据 DSH_FEISHU_APP_SECRET')
+        console.error(
+          '[feishu] 启动失败：拿不到 App Secret。检查顺序：'
+            + '① 凭据 DSH_FEISHU_APP_SECRET；② 配置里的 appSecret；③ settings.local.json。',
+        )
         return
       }
       client = new Lark.Client({ appId: config.appId, appSecret })
@@ -1012,16 +1053,40 @@ export function apply(ctx, rawConfig = {}) {
         appId: config.appId,
         appSecret,
         loggerLevel: Lark.LoggerLevel.info,
+        onReady: () => {
+          wsState = 'connected'
+          log('ws.state', 'connected')
+        },
+        onReconnecting: () => {
+          wsState = 'reconnecting'
+          log('ws.state', 'reconnecting')
+        },
+        onReconnected: () => {
+          wsState = 'connected'
+          log('ws.state', 'reconnected')
+          sendText('飞书连接已恢复。').catch(() => {})
+        },
+        onError: (error) => {
+          wsState = 'failed'
+          log('ws.state', 'failed', String(error?.message ?? error))
+          console.error('[feishu] 长连接失败：', error?.message ?? error)
+        },
       })
       await wsClient.start({ eventDispatcher: dispatcher })
+      wsState = 'connected'
       log('ws.ready')
       console.log('[feishu] 长连接已启动')
       if (state.openIds.length > 0) {
         await sendText('DSH 飞书助手已上线。发「帮助」看用法。').catch(() => {})
       }
     } catch (error) {
+      wsState = 'failed'
       log('ws.error', String(error?.message ?? error))
-      console.error('[feishu] 长连接启动失败（检查开放平台是否选了「长连接」订阅方式，或 sdkPath 配置）', error?.message ?? error)
+      console.error(
+        '[feishu] 长连接启动失败，常见原因：'
+          + '① 开放平台没选「长连接」订阅方式；② SDK 未安装或 sdkPath 不对；'
+          + `③ appId/appSecret 不匹配。原始错误：${error?.message ?? error}`,
+      )
     }
   }
 

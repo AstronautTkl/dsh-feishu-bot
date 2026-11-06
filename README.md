@@ -78,6 +78,7 @@ plugin_manager(action: "install_bundle", target: "<绝对路径>/dsh-feishu-bot"
 | `approvalScope` | `all` | `all` 全部工具；`read-only` 只放只读类 |
 | `dualApproval` | `true` | 双端模式：电脑确认框和飞书卡片同时等，先处理的一侧生效，另一侧同步结果 |
 | `desktopDelayMs` | `2500` | 双端模式下先给手机这么久的抢答窗口，再弹电脑确认框；`0` 表示立刻弹 |
+| `maxWaitMs` | `1800000` | 双端模式的总兜底：两边都没人处理时最多等这么久，到期放弃本次调用 |
 | `approvalTimeoutMs` | `300000` | 审批超时 |
 | `onTimeout` | `delegate` | 超时后 `delegate` 交回电脑，`reject` 直接拒绝 |
 | `bindMode` | `code` | `code` 首条消息要回本机日志里的 6 位码；`auto` 直接绑定 |
@@ -101,7 +102,7 @@ plugin_manager(action: "install_bundle", target: "<绝对路径>/dsh-feishu-bot"
 | `通知 开\|关` | 完成/报错提醒 |
 | `测试审批` | 发一张测试卡片，验证按钮链路 |
 | `绑定 <码>` | 首次绑定主人 |
-| `状态` | 服务状态 |
+| `状态` | 服务状态（含飞书连接状态） |
 
 ## 五、安全模型
 
