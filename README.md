@@ -76,6 +76,7 @@ plugin_manager(action: "install_bundle", target: "<绝对路径>/dsh-feishu-bot"
 | `sdkPath` | — | 仅开发用：SDK 入口文件的绝对路径 |
 | `remoteApproval` | `true` | 是否拦截审批并转到飞书 |
 | `approvalScope` | `all` | `all` 全部工具；`read-only` 只放只读类 |
+| `dualApproval` | `true` | 双端模式：电脑确认框和飞书卡片同时等，先处理的一侧生效，另一侧同步结果 |
 | `approvalTimeoutMs` | `300000` | 审批超时 |
 | `onTimeout` | `delegate` | 超时后 `delegate` 交回电脑，`reject` 直接拒绝 |
 | `bindMode` | `code` | `code` 首条消息要回本机日志里的 6 位码；`auto` 直接绑定 |
@@ -95,6 +96,7 @@ plugin_manager(action: "install_bundle", target: "<绝对路径>/dsh-feishu-bot"
 | `同意/拒绝/转电脑 <码>` | 处理审批（也可点卡片按钮） |
 | `远程 开\|关` | 远程审批总开关 |
 | `范围 全部\|只读` | 哪些工具可以在手机批 |
+| `双端 开\|关` | 电脑和手机是否同时等审批 |
 | `通知 开\|关` | 完成/报错提醒 |
 | `测试审批` | 发一张测试卡片，验证按钮链路 |
 | `绑定 <码>` | 首次绑定主人 |
@@ -118,6 +120,7 @@ plugin_manager(action: "install_bundle", target: "<绝对路径>/dsh-feishu-bot"
 3. **飞书事件回调 3 秒内必须返回。** 任何等待（等审批结果、长任务）都必须脱离回调执行，否则飞书会重投事件，同一条消息被执行多次。
 4. **消息按 `message_id` 去重**，兜住重投。
 5. 审批卡片直接返回更新后的卡片，不在回调里再发一次 API。
+6. **双端模式**：`next()` 打开电脑端确认框的同时发飞书卡片，`Promise.race` 取先处理的一侧；电脑端先处理时用 `settle` 把卡片改成同样的结果，手机先处理时电脑端确认框稍后点到的结果被忽略（记 `approval.desktop.late`）。
 
 ## 七、兼容性与排查
 

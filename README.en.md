@@ -63,6 +63,7 @@ For development you can put `appId`, `appSecret` and `sdkPath` in `settings.loca
 | `sdkPath` | — | Development only: absolute path to the SDK entry file |
 | `remoteApproval` | `true` | Route approvals to Feishu |
 | `approvalScope` | `all` | `all` or `read-only` |
+| `dualApproval` | `true` | Desktop prompt and Feishu card wait together; the first decision wins and the other side is synced |
 | `approvalTimeoutMs` | `300000` | Approval timeout |
 | `onTimeout` | `delegate` | `delegate` back to desktop, or `reject` |
 | `bindMode` | `code` | `code` requires the 6-digit code from the local log on first contact |
@@ -73,7 +74,7 @@ For development you can put `appId`, `appSecret` and `sdkPath` in `settings.loca
 
 ## 4. Commands
 
-`help` · `list` · `view <id> [n]` · `pending` · `approve/reject/delegate <code>` · `remote on|off` · `scope all|read-only` · `notify on|off` · `test-approval` · `bind <code>` · `status`
+`help` · `list` · `view <id> [n]` · `pending` · `approve/reject/delegate <code>` · `remote on|off` · `scope all|read-only` · `dual on|off` · `notify on|off` · `test-approval` · `bind <code>` · `status`
 
 ## 5. Security
 
@@ -92,6 +93,7 @@ Moving approvals to a phone moves the authorization channel to a phone. Bind onl
 3. Feishu callbacks must answer within **3 seconds**; anything slow has to be detached, or Feishu re-delivers and commands run twice.
 4. Messages are de-duplicated by `message_id`.
 5. Card callbacks return the updated card inline instead of issuing another API call.
+6. **Dual mode**: `next()` opens the desktop prompt while a Feishu card is sent; `Promise.race` takes the first decision, and a desktop-first outcome patches the card through `settle`. A phone-first outcome leaves the desktop prompt to be dismissed, and its late answer is ignored.
 
 ## 7. Troubleshooting
 

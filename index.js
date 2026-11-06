@@ -55,6 +55,8 @@ const DEFAULTS = {
   approvalTimeoutMs: 300000,
   // 'read-only' 只允许把只读类工具带到飞书批准；'all' 放开全部工具。
   approvalScope: 'all',
+  // 双端同时等待：电脑端弹确认框、飞书发卡片，先处理的一侧生效，另一侧同步结果。
+  dualApproval: true,
   // 超时后：'delegate' 交回界面确认，'reject' 直接拒绝。
   onTimeout: 'delegate',
   // 首条消息如何绑定主人：'code' 需要回一个本机日志里的绑定码，'auto' 直接绑定。
@@ -96,7 +98,7 @@ function toolCallArguments(session, callId) {
 }
 
 function loadState() {
-  const state = { openIds: [], chatId: '', remoteApproval: true, notify: true, approvalScope: '', explicit: {} }
+  const state = { openIds: [], chatId: '', remoteApproval: true, notify: true, approvalScope: '', dualApproval: null, explicit: {} }
   try {
     const raw = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8'))
     if (Array.isArray(raw.openIds)) state.openIds = raw.openIds.filter((v) => typeof v === 'string')
@@ -104,6 +106,7 @@ function loadState() {
     if (typeof raw.remoteApproval === 'boolean') state.remoteApproval = raw.remoteApproval
     if (typeof raw.notify === 'boolean') state.notify = raw.notify
     if (typeof raw.approvalScope === 'string') state.approvalScope = raw.approvalScope
+    if (typeof raw.dualApproval === 'boolean') state.dualApproval = raw.dualApproval
     if (raw.explicit && typeof raw.explicit === 'object') state.explicit = raw.explicit
   } catch {}
   return state
@@ -234,6 +237,9 @@ export function apply(ctx, rawConfig = {}) {
   if (!state.approvalScope) {
     state.approvalScope = config.approvalScope === 'all' ? 'all' : 'read-only'
   }
+  if (typeof state.dualApproval !== 'boolean') {
+    state.dualApproval = config.dualApproval !== false
+  }
 
   if (!config.appId) {
     console.error('[feishu] 缺少 appId，插件未启动')
@@ -326,10 +332,29 @@ export function apply(ctx, rawConfig = {}) {
   }
 
   function doneCard(entry, outcome, byWhom) {
-    const state = outcome === 'allowed-once' ? 'approved' : outcome === 'delegate' ? 'delegated' : 'rejected'
+    const state =
+      outcome === 'allowed-once'
+        ? 'approved'
+        : outcome === 'delegate'
+          ? 'delegated'
+          : outcome === 'timeout'
+            ? 'timeout'
+            : 'rejected'
     const title =
-      state === 'approved' ? '✅ 已同意' : state === 'delegated' ? '⏳ 已转交电脑' : '⛔ 已拒绝'
-    const template = state === 'approved' ? 'green' : state === 'delegated' ? 'blue' : 'red'
+      state === 'approved'
+        ? '✅ 已同意'
+        : state === 'delegated'
+          ? '⏳ 已转交电脑'
+          : state === 'timeout'
+            ? '⌛ 手机侧已超时'
+            : '⛔ 已拒绝'
+    const template = state === 'approved' ? 'green' : state === 'delegated' ? 'blue' : state === 'timeout' ? 'grey' : 'red'
+    const note =
+      state === 'delegated'
+        ? '已交回 DSH 界面等待确认'
+        : state === 'timeout'
+          ? '电脑端仍在等待确认'
+          : '两端已同步'
     return {
       config: { wide_screen_mode: true },
       header: {
@@ -340,9 +365,7 @@ export function apply(ctx, rawConfig = {}) {
         cardText(`**会话**：${entry.sessionName}\n**工具**：\`${entry.toolName}\`\n**码**：${entry.code}${byWhom ? `\n**操作人**：${byWhom}` : ''}`),
         {
           tag: 'note',
-          elements: [
-            { tag: 'plain_text', content: state === 'delegated' ? '已交回 DSH 界面等待确认' : 'DSH 已收到决定' },
-          ],
+          elements: [{ tag: 'plain_text', content: note }],
         },
       ],
     }
@@ -408,6 +431,7 @@ export function apply(ctx, rawConfig = {}) {
           '同意/拒绝/转电脑 <码> —— 处理审批',
           '远程 开|关 —— 远程审批总开关',
           '范围 全部|只读 —— 哪些工具可以在手机批',
+          '双端 开|关 —— 电脑和手机是否同时等审批',
           '征求 开|关 —— 强制每次工具调用都走审批（调试用）',
           '通知 开|关 —— 完成/报错提醒',
           '测试审批 —— 发一张测试卡片，验证按钮',
@@ -510,6 +534,17 @@ export function apply(ctx, rawConfig = {}) {
       )
     }
 
+    if (head === '双端') {
+      if (arg === '开') state.dualApproval = true
+      else if (arg === '关') state.dualApproval = false
+      saveState(state)
+      return sendText(
+        `双端模式：${state.dualApproval ? '开（电脑+手机同时等，先处理的一侧生效）' : '关（只走手机）'}`,
+        replyId.chatId,
+        replyId.chatId ? 'chat_id' : undefined,
+      )
+    }
+
     if (head === '范围') {
       if (arg === '全部') state.approvalScope = 'all'
       else if (arg === '只读') state.approvalScope = 'read-only'
@@ -525,8 +560,9 @@ export function apply(ctx, rawConfig = {}) {
       return sendText(
         [
           `远程审批：${state.remoteApproval ? '开' : '关'}`,
+          `双端模式：${state.dualApproval ? '开（电脑+手机同时等）' : '关（只走手机）'}`,
           `审批范围：${state.approvalScope === 'all' ? '全部工具' : '只读类（写/执行留电脑）'}`,
-          `超时策略：${config.onTimeout === 'delegate' ? '交回电脑' : '拒绝'}`,
+          `超时策略：${state.dualApproval ? '由电脑端兜底' : config.onTimeout === 'delegate' ? '交回电脑' : '拒绝'}`,
           `通知：${state.notify ? '开' : '关'}`,
           `待审批：${pending.size}`,
           `已知会话：${(() => { try { return ctx.sessions.list().filter((session) => !isSubagent(session)).length } catch { return '?' } })()}`,
@@ -711,8 +747,9 @@ export function apply(ctx, rawConfig = {}) {
           elements: [
             {
               tag: 'plain_text',
-              content:
-                config.onTimeout === 'delegate'
+              content: state.dualApproval
+                ? '电脑端和手机端同时在等，任一侧处理即生效'
+                : config.onTimeout === 'delegate'
                   ? `${Math.max(1, Math.round(timeoutMs / 60000))} 分钟没操作会自动交回电脑确认`
                   : `${Math.max(1, Math.round(timeoutMs / 60000))} 分钟没操作视为拒绝`,
             },
@@ -722,10 +759,15 @@ export function apply(ctx, rawConfig = {}) {
     }
   }
 
-  async function requestApprovalCard(options) {
+  /**
+   * 发一张审批卡片并返回它的决定 Promise。
+   * options.timeoutMs 传 null 表示手机侧不设超时（双端模式由电脑端兜底）。
+   */
+  async function openApprovalCard(options) {
     const target = targetId()
     if (!target) return null
-    const timeoutMs = Number.isFinite(options.timeoutMs) ? options.timeoutMs : config.approvalTimeoutMs
+    const noTimeout = options.timeoutMs === null
+    const timeoutMs = noTimeout ? 30 * 60000 : Number.isFinite(options.timeoutMs) ? options.timeoutMs : config.approvalTimeoutMs
     const entry = {
       code: makeCode(),
       toolName: options.toolName,
@@ -749,7 +791,7 @@ export function apply(ctx, rawConfig = {}) {
     entry.messageId = messageId
     log('approval.card.sent', entry.code, options.toolName)
     const timeoutOutcome = config.onTimeout === 'delegate' ? 'delegate' : 'rejected'
-    const outcome = await new Promise((resolve) => {
+    const decision = new Promise((resolve) => {
       entry.resolve = resolve
       if (options.signal?.aborted) {
         resolve('cancelled')
@@ -758,15 +800,24 @@ export function apply(ctx, rawConfig = {}) {
       const onAbort = () => settle(entry.code, 'cancelled', 'signal')
       entry.onAbort = onAbort
       options.signal?.addEventListener?.('abort', onAbort, { once: true })
-      entry.timer = setTimeout(() => settle(entry.code, timeoutOutcome, '超时'), timeoutMs)
+      if (!noTimeout) {
+        entry.timer = setTimeout(() => settle(entry.code, timeoutOutcome, '超时'), timeoutMs)
+      }
       pending.set(entry.code, entry)
     })
-    return { outcome, code: entry.code }
+    return { entry, decision }
+  }
+
+  async function requestApprovalCard(options) {
+    const opened = await openApprovalCard(options)
+    if (!opened) return null
+    const outcome = await opened.decision
+    return { outcome, code: opened.entry.code }
   }
 
   async function handleApproval(req, next) {
     try {
-      log('approval.req', { tool: req?.toolName, callId: String(req?.callId ?? ''), remote: state.remoteApproval, scope: state.approvalScope })
+      log('approval.req', { tool: req?.toolName, callId: String(req?.callId ?? ''), remote: state.remoteApproval, scope: state.approvalScope, dual: state.dualApproval })
       if (!state.remoteApproval) return next()
       const toolName = String(req?.toolName ?? 'tool')
       const allowList = Array.isArray(config.approvableTools) ? config.approvableTools : []
@@ -783,18 +834,51 @@ export function apply(ctx, rawConfig = {}) {
       } catch {}
       const sessionLabel = session ? sessionName(session) : '会话'
       const summary = oneLine(toolCallArguments(session, req?.callId), 120)
-
-      const result = await requestApprovalCard({
+      const options = {
         toolName,
         reason: req?.reason ?? req?.displayReason?.zh ?? req?.displayReason?.en ?? '',
         summary,
         risky: !READ_ONLY_TOOLS.has(toolName),
         sessionName: sessionLabel,
         signal: req?.signal,
-      })
-      if (!result) return next()
-      if (result.outcome === 'delegate') return next()
-      return result.outcome
+      }
+
+      if (!state.dualApproval) {
+        const result = await requestApprovalCard(options)
+        if (!result) return next()
+        if (result.outcome === 'delegate') return next()
+        return result.outcome
+      }
+
+      // 双端模式：电脑端确认框和飞书卡片同时等，先处理的一侧生效。
+      const opened = await openApprovalCard({ ...options, timeoutMs: null })
+      if (!opened) return next()
+      const desktop = Promise.resolve().then(() => next())
+      const winner = await Promise.race([
+        opened.decision.then((outcome) => ({ from: 'phone', outcome })),
+        desktop.then((outcome) => ({ from: 'desktop', outcome })),
+      ])
+      log('approval.winner', winner.from, winner.outcome)
+
+      if (winner.from === 'desktop') {
+        // 电脑端先处理：把飞书卡片改成同样的结果。
+        settle(opened.entry.code, winner.outcome ?? 'cancelled', '电脑端')
+        return winner.outcome
+      }
+
+      if (winner.outcome === 'delegate') {
+        // 手机点了「交给电脑」：电脑端本来就在等，直接等它的结果并回写卡片。
+        const desktopOutcome = await desktop
+        patchCard(opened.entry.messageId, doneCard(opened.entry, desktopOutcome ?? 'cancelled', '电脑端'))
+        log('approval.desktop.after-delegate', desktopOutcome)
+        return desktopOutcome
+      }
+
+      // 手机先决定：电脑端确认框稍后会被用户点到，结果忽略即可。
+      desktop
+        .then((late) => log('approval.desktop.late', late))
+        .catch((error) => log('approval.desktop.late-error', String(error?.message ?? error)))
+      return winner.outcome
     } catch (error) {
       console.error('[feishu] 审批处理异常', error)
       return next()
@@ -826,7 +910,7 @@ export function apply(ctx, rawConfig = {}) {
 
   const disposers = []
 
-  // 关键：agent 作用域的事件（含 approval/request）从 agent 自己的上下文派发，
+  // 关键：agent 作用域的事件（含 approval/request）由 agent 自己的上下文派发，
   // 只有它祖先上的监听器收得到。插件上下文是 root 的兄弟分支，挂在它上面收不到，
   // 所以这些监听必须注册在 root 上。
   const bus = ctx.root ?? ctx
